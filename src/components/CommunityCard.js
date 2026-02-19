@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { FONTS, SPACING, RADIUS } from '../theme';
 
@@ -46,9 +47,12 @@ const CommunityCard = ({ community, onPress, onJoin, isJoined }) => {
           >
             {community.description}
           </Text>
-          <Text style={[styles.members, { color: colors.textMuted }]}>
-            {community.memberCount?.toLocaleString() || 0} members
-          </Text>
+          <View style={styles.metaRow}>
+            <Ionicons name="people-outline" size={12} color={colors.textMuted} />
+            <Text style={[styles.members, { color: colors.textMuted }]}>
+              {community.memberCount?.toLocaleString() || 0} members
+            </Text>
+          </View>
         </View>
 
         {/* Join Button */}
@@ -57,15 +61,20 @@ const CommunityCard = ({ community, onPress, onJoin, isJoined }) => {
           style={[
             styles.joinBtn,
             {
-              backgroundColor: isJoined ? colors.card : colors.text,
-              borderColor: colors.border,
+              backgroundColor: isJoined ? colors.card : colors.accent,
+              borderColor: isJoined ? colors.border : colors.accent,
             },
           ]}
         >
+          <Ionicons
+            name={isJoined ? 'checkmark' : 'add'}
+            size={14}
+            color={isJoined ? colors.text : '#FFF'}
+          />
           <Text
             style={[
               styles.joinText,
-              { color: isJoined ? colors.text : colors.card },
+              { color: isJoined ? colors.text : '#FFF' },
             ]}
           >
             {isJoined ? 'JOINED' : 'JOIN'}
@@ -81,7 +90,7 @@ const styles = StyleSheet.create({
     marginHorizontal: SPACING.md,
     marginBottom: SPACING.sm,
     borderWidth: 2.5,
-    borderRadius: RADIUS.sm,
+    borderRadius: RADIUS.md,
     padding: SPACING.md,
   },
   row: {
@@ -91,7 +100,7 @@ const styles = StyleSheet.create({
   iconBox: {
     width: 48,
     height: 48,
-    borderRadius: RADIUS.sm,
+    borderRadius: RADIUS.md,
     borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
@@ -114,22 +123,30 @@ const styles = StyleSheet.create({
     marginTop: 2,
     lineHeight: 16,
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
   members: {
     fontSize: FONTS.tinySize,
     fontWeight: FONTS.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginTop: 4,
   },
   joinBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 2.5,
     borderRadius: RADIUS.sm,
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.sm + 2,
     paddingVertical: SPACING.sm,
     marginLeft: SPACING.sm,
+    gap: 4,
   },
   joinText: {
-    fontSize: FONTS.captionSize,
+    fontSize: FONTS.tinySize,
     fontWeight: FONTS.black,
     letterSpacing: 1,
   },

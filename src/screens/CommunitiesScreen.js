@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,59 +8,71 @@ import {
   RefreshControl,
   StatusBar,
   TouchableOpacity,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
-import { FONTS, SPACING, RADIUS } from '../theme';
+import { FONTS, SPACING, RADIUS, SHADOWS } from '../theme';
 import CommunityCard from '../components/CommunityCard';
-import { useFocusEffect } from '@react-navigation/native';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { communityService } from '../services/firestore';
 import { useAuth } from '../context/AuthContext';
+
+const FILTER_ICONS = {
+  ALL: 'apps-outline',
+  JOINED: 'checkmark-circle-outline',
+  TRENDING: 'trending-up-outline',
+};
 
 const CommunitiesScreen = ({ navigation }) => {
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
   const [communities, setCommunities] = useState([]);
   const [search, setSearch] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  const [joinedIds, setJoinedIds] = useState(new Set());
-  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('ALL');
 
-  const filtered = communities.filter((c) =>
-    c.name?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 800);
+  // Real-time listener for all communities
+  useEffect(() => {
+    const unsubscribe = communityService.listenAll((comms) => {
+      setCommunities(comms);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
-  const handleJoin = (community) => {
-    // TODO: Implement join/leave logic with Firestore and user.followedCommunities
-    setJoinedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(community.id)) {
-        next.delete(community.id);
+  // Filter communities
+  const filtered = communities.filter((c) => {
+    const matchesSearch = c.name?.toLowerCase().includes(search.toLowerCase());
+    if (activeFilter === 'JOINED') {
+      return matchesSearch && c.members?.includes(user?.uid);
+    }
+    if (activeFilter === 'TRENDING') {
+      return matchesSearch; // sort by memberCount below
+    }
+    return matchesSearch;
+  });
+
+  // Sort trending by member count
+  const sortedFiltered = activeFilter === 'TRENDING'
+    ? [...filtered].sort((a, b) => (b.memberCount || 0) - (a.memberCount || 0))
+    : filtered;
+
+  const handleJoin = async (community) => {
+    if (!user?.uid) return;
+    const isMember = community.members?.includes(user.uid);
+    try {
+      if (isMember) {
+        await communityService.leave(community.id, user.uid);
       } else {
-        next.add(community.id);
+        await communityService.join(community.id, user.uid);
       }
-      return next;
-    });
+    } catch (e) {
+      Alert.alert('Error', 'Failed to update membership.');
+    }
   };
 
   const handlePress = (community) => {
-      // Listen to Firestore communities collection
-      useFocusEffect(
-        React.useCallback(() => {
-          const unsubscribe = onSnapshot(collection(db, 'communities'), (snapshot) => {
-            const comms = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-            setCommunities(comms);
-            // Optionally, update joinedIds from user profile if available
-          });
-          return () => unsubscribe();
-        }, [user])
-      );
     navigation.navigate('CommunityFeed', { community });
   };
 
@@ -70,31 +82,14 @@ const CommunitiesScreen = ({ navigation }) => {
         community={item}
         onPress={handlePress}
         onJoin={handleJoin}
-        isJoined={joinedIds.has(item.id)}
+        isJoined={item.members?.includes(user?.uid)}
       />
     ),
-    [joinedIds]
+    [user, communities]
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}> 
-      {/* Create Community Button */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
-        <TouchableOpacity
-          style={{
-            backgroundColor: colors.accent,
-            borderRadius: 8,
-            paddingVertical: 12,
-            alignItems: 'center',
-            marginBottom: 8,
-          }}
-          onPress={() => navigation.navigate('CreateCommunity')}
-        >
-          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
-            + Create Community
-          </Text>
-        </TouchableOpacity>
-      </View>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       <StatusBar
         barStyle={isDark ? 'light-content' : 'dark-content'}
         backgroundColor={colors.bg}
@@ -105,81 +100,106 @@ const CommunitiesScreen = ({ navigation }) => {
         <Text style={[styles.headerSmall, { color: colors.textMuted }]}>
           explore
         </Text>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
-          COMMU
-          <Text style={{ color: colors.accentAlt }}>NITIES</Text>
-        </Text>
+        <View style={styles.headerRow}>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            COMMU
+            <Text style={{ color: colors.accentAlt }}>NITIES</Text>
+          </Text>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('CreateCommunity')}
+            style={[styles.createBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}
+          >
+            <Text style={styles.createBtnText}>+ NEW</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search */}
       <View style={styles.searchWrap}>
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="SEARCH COMMUNITIES..."
-          placeholderTextColor={colors.textMuted}
-          style={[
-            styles.searchInput,
-            {
-              color: colors.text,
-              backgroundColor: colors.inputBg,
-              borderColor: colors.border,
-            },
-          ]}
-        />
+        <View style={[styles.searchBox, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+          <Ionicons name="search" size={16} color={colors.textMuted} />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search communities..."
+            placeholderTextColor={colors.textMuted}
+            style={[styles.searchInput, { color: colors.text }]}
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Tags */}
+      {/* Filter Tags */}
       <View style={styles.tagsRow}>
-        {['ALL', 'JOINED', 'TRENDING'].map((tag, i) => (
-          <TouchableOpacity
-            key={tag}
-            style={[
-              styles.tag,
-              {
-                backgroundColor: i === 0 ? colors.accent : colors.inputBg,
-                borderColor: colors.border,
-              },
-            ]}
-          >
-            <Text
+        {['ALL', 'JOINED', 'TRENDING'].map((tag) => {
+          const isActive = activeFilter === tag;
+          return (
+            <TouchableOpacity
+              key={tag}
+              onPress={() => setActiveFilter(tag)}
               style={[
-                styles.tagText,
-                { color: i === 0 ? '#FFF' : colors.text },
+                styles.tag,
+                {
+                  backgroundColor: isActive ? colors.accent : colors.inputBg,
+                  borderColor: isActive ? colors.accent : colors.border,
+                },
               ]}
             >
-              {tag}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Ionicons
+                name={FILTER_ICONS[tag]}
+                size={14}
+                color={isActive ? '#FFF' : colors.textMuted}
+              />
+              <Text
+                style={[
+                  styles.tagText,
+                  { color: isActive ? '#FFF' : colors.text },
+                ]}
+              >
+                {tag}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* List */}
-      <FlatList
-        data={filtered}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.accent}
-            colors={[colors.accent]}
-          />
-        }
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              NOTHING FOUND
-            </Text>
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-              try a different search term
-            </Text>
-          </View>
-        }
-      />
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading communities...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={sortedFiltered}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons
+                name={activeFilter === 'JOINED' ? 'people-outline' : 'search-outline'}
+                size={48}
+                color={colors.textMuted}
+                style={{ marginBottom: SPACING.md, opacity: 0.3 }}
+              />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                {activeFilter === 'JOINED' ? 'NOT A MEMBER YET' : 'NOTHING FOUND'}
+              </Text>
+              <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+                {activeFilter === 'JOINED'
+                  ? 'join communities to see them here'
+                  : 'try a different search term'}
+              </Text>
+            </View>
+          }
+        />
+      )}
     </View>
   );
 };
@@ -194,6 +214,11 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.md,
     borderBottomWidth: 2.5,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   headerSmall: {
     fontSize: FONTS.tinySize,
     fontWeight: FONTS.medium,
@@ -205,18 +230,36 @@ const styles = StyleSheet.create({
     fontWeight: FONTS.black,
     letterSpacing: -1.5,
   },
+  createBtn: {
+    borderWidth: 2.5,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  createBtnText: {
+    color: '#FFF',
+    fontSize: FONTS.captionSize,
+    fontWeight: FONTS.black,
+    letterSpacing: 1,
+  },
   searchWrap: {
     paddingHorizontal: SPACING.md,
     paddingTop: SPACING.md,
   },
-  searchInput: {
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 2.5,
     borderRadius: RADIUS.sm,
     paddingHorizontal: SPACING.md,
+    gap: SPACING.sm,
+  },
+  searchInput: {
+    flex: 1,
     paddingVertical: SPACING.sm + 2,
     fontSize: FONTS.captionSize,
     fontWeight: FONTS.bold,
-    letterSpacing: 1,
+    letterSpacing: 0.5,
   },
   tagsRow: {
     flexDirection: 'row',
@@ -226,10 +269,13 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   tag: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 2,
     borderRadius: RADIUS.sm,
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.xs + 2,
+    gap: 4,
   },
   tagText: {
     fontSize: FONTS.tinySize,
@@ -239,6 +285,18 @@ const styles = StyleSheet.create({
   listContent: {
     paddingTop: SPACING.xs,
     paddingBottom: 100,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: FONTS.captionSize,
+    fontWeight: FONTS.bold,
+    marginTop: SPACING.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   empty: {
     alignItems: 'center',

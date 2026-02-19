@@ -1,4 +1,4 @@
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,24 +6,137 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
+  Animated,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
-import { FONTS, SPACING, RADIUS, BRUTAL } from '../theme';
+import { FONTS, SPACING, RADIUS, POST_TYPES } from '../theme';
 import { formatTimestamp } from '../utils/helpers';
+import { postService } from '../services/firestore';
 
 const { width } = Dimensions.get('window');
 
-const PostCard = ({ post, onPress, onLike, onComment, currentUserId }) => {
-  const { colors } = useTheme();
-  const [liked, setLiked] = useState(
-    post.likedBy?.includes(currentUserId) || false
-  );
-  const [likeCount, setLikeCount] = useState(post.likes || 0);
+// ─── Poll Option Component ────────────────────────
+const PollOption = ({ option, totalVotes, hasVoted, votedOption, onVote, colors, index }) => {
+  const votes = option.votes || 0;
+  const pct = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
 
-  const handleLike = () => {
-    setLiked(!liked);
-    setLikeCount((prev) => (liked ? prev - 1 : prev + 1));
-    onLike?.(post.id, !liked);
+  return (
+    <TouchableOpacity
+      activeOpacity={hasVoted ? 1 : 0.7}
+      onPress={() => !hasVoted && onVote?.(index)}
+      style={[
+        styles.pollOption,
+        {
+          borderColor: votedOption === index ? colors.accentPurple : colors.border,
+          backgroundColor: colors.inputBg,
+        },
+      ]}
+    >
+      {hasVoted && (
+        <View
+          style={[
+            styles.pollBar,
+            {
+              width: `${pct}%`,
+              backgroundColor: votedOption === index
+                ? colors.accentPurple + '30'
+                : colors.textMuted + '15',
+            },
+          ]}
+        />
+      )}
+      <View style={styles.pollOptionContent}>
+        <Text style={[styles.pollOptionText, { color: colors.text }]} numberOfLines={1}>
+          {option.text}
+        </Text>
+        {hasVoted && (
+          <Text style={[styles.pollPct, { color: votedOption === index ? colors.accentPurple : colors.textMuted }]}>
+            {pct}%
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+// ─── Main PostCard ────────────────────────────────
+const PostCard = ({ post, onPress, onLike, onComment, onUserPress, currentUserId }) => {
+  const { colors } = useTheme();
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const initialVote = post.upvotedBy?.includes(currentUserId)
+    ? 'up'
+    : post.downvotedBy?.includes(currentUserId)
+    ? 'down'
+    : post.likedBy?.includes(currentUserId)
+    ? 'up'
+    : null;
+
+  const [voteState, setVoteState] = useState(initialVote);
+  const [voteScore, setVoteScore] = useState(
+    (post.upvotes || post.likes || 0) - (post.downvotes || 0)
+  );
+  const [bookmarked, setBookmarked] = useState(
+    post.bookmarkedBy?.includes(currentUserId) || false
+  );
+
+  const postType = post.postType || (post.image ? 'image' : 'text');
+  const typeConfig = POST_TYPES[postType] || POST_TYPES.text;
+  const isConfession = postType === 'confession';
+  const isPoll = postType === 'poll';
+
+  const [pollVotedOption, setPollVotedOption] = useState(
+    post.pollVotedBy?.[currentUserId] ?? null
+  );
+  const hasPollVoted = pollVotedOption !== null;
+  const pollTotalVotes = (post.pollOptions || []).reduce((sum, o) => sum + (o.votes || 0), 0);
+
+  const handleUpvote = async () => {
+    Animated.sequence([
+      Animated.timing(scaleAnim, { toValue: 1.15, duration: 80, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
+    ]).start();
+
+    if (voteState === 'up') {
+      setVoteState(null);
+      setVoteScore((s) => s - 1);
+      try { await postService.removeUpvote(post.id, currentUserId); } catch (e) {}
+    } else {
+      const wasDown = voteState === 'down';
+      setVoteState('up');
+      setVoteScore((s) => s + (wasDown ? 2 : 1));
+      try { await postService.upvote(post.id, currentUserId, wasDown); } catch (e) {}
+    }
+  };
+
+  const handleDownvote = async () => {
+    if (voteState === 'down') {
+      setVoteState(null);
+      setVoteScore((s) => s + 1);
+      try { await postService.removeDownvote(post.id, currentUserId); } catch (e) {}
+    } else {
+      const wasUp = voteState === 'up';
+      setVoteState('down');
+      setVoteScore((s) => s - (wasUp ? 2 : 1));
+      try { await postService.downvote(post.id, currentUserId, wasUp); } catch (e) {}
+    }
+  };
+
+  const handleBookmark = async () => {
+    setBookmarked(!bookmarked);
+    try {
+      if (bookmarked) {
+        await postService.unbookmark(post.id, currentUserId);
+      } else {
+        await postService.bookmark(post.id, currentUserId);
+      }
+    } catch (e) {}
+  };
+
+  const handlePollVote = (optionIndex) => {
+    setPollVotedOption(optionIndex);
+    postService.votePoll?.(post.id, currentUserId, optionIndex).catch(() => {});
   };
 
   return (
@@ -34,35 +147,55 @@ const PostCard = ({ post, onPress, onLike, onComment, currentUserId }) => {
         styles.card,
         {
           backgroundColor: colors.card,
-          borderColor: colors.border,
+          borderColor: isConfession ? colors.accentPink : colors.border,
         },
       ]}
     >
+      {/* Post type badge */}
+      <View style={[styles.typeBadge, { backgroundColor: typeConfig.color }]}>
+        <Ionicons name={typeConfig.icon} size={10} color="#FFF" />
+        <Text style={styles.typeBadgeText}>{typeConfig.label}</Text>
+      </View>
+
       {/* Header */}
       <View style={styles.header}>
-        <View
+        <TouchableOpacity
+          onPress={() => !isConfession && onUserPress?.(post.userId)}
+          activeOpacity={isConfession ? 1 : 0.7}
           style={[
             styles.avatar,
-            { backgroundColor: colors.accent, borderColor: colors.border },
+            {
+              backgroundColor: isConfession ? colors.accentPink : colors.accent,
+              borderColor: colors.border,
+            },
           ]}
         >
-          <Text style={styles.avatarText}>
-            {post.username?.charAt(0) || 'A'}
-          </Text>
-        </View>
+          {isConfession ? (
+            <Ionicons name="eye-off" size={18} color="#FFF" />
+          ) : (
+            <Text style={styles.avatarText}>
+              {post.username?.charAt(0) || 'A'}
+            </Text>
+          )}
+        </TouchableOpacity>
         <View style={styles.headerInfo}>
-          <Text
-            style={[styles.username, { color: colors.text }]}
-            numberOfLines={1}
+          <TouchableOpacity
+            onPress={() => !isConfession && onUserPress?.(post.userId)}
+            disabled={isConfession}
           >
-            {post.username}
-          </Text>
-          <View style={styles.metaRow}>
-            <View
-              style={[styles.uniTag, { backgroundColor: colors.accentAlt }]}
+            <Text
+              style={[styles.username, { color: isConfession ? colors.accentPink : colors.text }]}
+              numberOfLines={1}
             >
-              <Text style={styles.uniTagText}>{post.university}</Text>
-            </View>
+              {isConfession ? 'Anonymous' : post.username}
+            </Text>
+          </TouchableOpacity>
+          <View style={styles.metaRow}>
+            {!isConfession && post.university ? (
+              <View style={[styles.uniTag, { backgroundColor: colors.accentAlt }]}>
+                <Text style={styles.uniTagText}>{post.university}</Text>
+              </View>
+            ) : null}
             {post.communityName && (
               <Text style={[styles.communityLabel, { color: colors.textMuted }]}>
                 in{' '}
@@ -88,45 +221,80 @@ const PostCard = ({ post, onPress, onLike, onComment, currentUserId }) => {
         </View>
       )}
 
+      {/* Poll */}
+      {isPoll && post.pollOptions && (
+        <View style={styles.pollContainer}>
+          {post.pollOptions.map((option, idx) => (
+            <PollOption
+              key={idx}
+              option={option}
+              index={idx}
+              totalVotes={pollTotalVotes}
+              hasVoted={hasPollVoted}
+              votedOption={pollVotedOption}
+              onVote={handlePollVote}
+              colors={colors}
+            />
+          ))}
+          <Text style={[styles.pollMeta, { color: colors.textMuted }]}>
+            {pollTotalVotes} votes
+          </Text>
+        </View>
+      )}
+
       {/* Actions */}
       <View style={[styles.actions, { borderTopColor: colors.border }]}>
-        <TouchableOpacity
-          style={[
-            styles.actionBtn,
-            liked && { backgroundColor: colors.accent },
-          ]}
-          onPress={handleLike}
-        >
+        <View style={[styles.voteGroup, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+          <TouchableOpacity onPress={handleUpvote} style={styles.voteBtn}>
+            <Animated.View style={{ transform: [{ scale: voteState === 'up' ? scaleAnim : 1 }] }}>
+              <Ionicons
+                name={voteState === 'up' ? 'arrow-up-circle' : 'arrow-up-circle-outline'}
+                size={22}
+                color={voteState === 'up' ? colors.upvote : colors.textMuted}
+              />
+            </Animated.View>
+          </TouchableOpacity>
           <Text
             style={[
-              styles.actionIcon,
-              { color: liked ? '#FFF' : colors.text },
+              styles.voteScore,
+              {
+                color:
+                  voteState === 'up'
+                    ? colors.upvote
+                    : voteState === 'down'
+                    ? colors.downvote
+                    : colors.text,
+              },
             ]}
           >
-            ▲
+            {voteScore}
           </Text>
-          <Text
-            style={[
-              styles.actionCount,
-              { color: liked ? '#FFF' : colors.text },
-            ]}
-          >
-            {likeCount}
-          </Text>
-        </TouchableOpacity>
+          <TouchableOpacity onPress={handleDownvote} style={styles.voteBtn}>
+            <Ionicons
+              name={voteState === 'down' ? 'arrow-down-circle' : 'arrow-down-circle-outline'}
+              size={22}
+              color={voteState === 'down' ? colors.downvote : colors.textMuted}
+            />
+          </TouchableOpacity>
+        </View>
 
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => onComment?.(post)}
-        >
-          <Text style={[styles.actionIcon, { color: colors.text }]}>💬</Text>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => onComment?.(post)}>
+          <Ionicons name="chatbubble-outline" size={18} color={colors.text} />
           <Text style={[styles.actionCount, { color: colors.text }]}>
-            {post.commentCount || 0}
+            {post.commentCount || post.commentsCount || 0}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionBtn}>
-          <Text style={[styles.actionIcon, { color: colors.text }]}>↗</Text>
+          <Ionicons name="share-outline" size={18} color={colors.text} />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionBtn} onPress={handleBookmark}>
+          <Ionicons
+            name={bookmarked ? 'bookmark' : 'bookmark-outline'}
+            size={18}
+            color={bookmarked ? colors.accentYellow : colors.text}
+          />
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
@@ -138,8 +306,23 @@ const styles = StyleSheet.create({
     marginHorizontal: SPACING.md,
     marginBottom: SPACING.md,
     borderWidth: 2.5,
-    borderRadius: RADIUS.sm,
+    borderRadius: RADIUS.md,
     overflow: 'hidden',
+  },
+  typeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderBottomRightRadius: RADIUS.sm,
+    gap: 4,
+  },
+  typeBadgeText: {
+    color: '#FFF',
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 1.5,
   },
   header: {
     flexDirection: 'row',
@@ -150,7 +333,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 40,
     height: 40,
-    borderRadius: RADIUS.sm,
+    borderRadius: 20,
     borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
@@ -168,7 +351,6 @@ const styles = StyleSheet.create({
     fontSize: FONTS.bodySize,
     fontWeight: FONTS.black,
     letterSpacing: -0.5,
-    textTransform: 'uppercase',
   },
   metaRow: {
     flexDirection: 'row',
@@ -218,12 +400,72 @@ const styles = StyleSheet.create({
     height: 220,
     resizeMode: 'cover',
   },
+  pollContainer: {
+    paddingHorizontal: SPACING.md,
+    paddingBottom: SPACING.md,
+  },
+  pollOption: {
+    borderWidth: 2,
+    borderRadius: RADIUS.sm,
+    marginBottom: SPACING.xs,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  pollBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: RADIUS.sm - 2,
+  },
+  pollOptionContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+  },
+  pollOptionText: {
+    fontSize: FONTS.captionSize,
+    fontWeight: FONTS.bold,
+    flex: 1,
+  },
+  pollPct: {
+    fontSize: FONTS.captionSize,
+    fontWeight: FONTS.black,
+    marginLeft: SPACING.sm,
+  },
+  pollMeta: {
+    fontSize: FONTS.tinySize,
+    fontWeight: FONTS.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginTop: SPACING.xs,
+  },
   actions: {
     flexDirection: 'row',
     borderTopWidth: 2,
     paddingVertical: SPACING.sm,
     paddingHorizontal: SPACING.md,
+    alignItems: 'center',
     gap: SPACING.sm,
+  },
+  voteGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderRadius: RADIUS.lg,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  voteBtn: {
+    padding: 4,
+  },
+  voteScore: {
+    fontSize: FONTS.captionSize,
+    fontWeight: FONTS.black,
+    minWidth: 24,
+    textAlign: 'center',
   },
   actionBtn: {
     flexDirection: 'row',
@@ -232,10 +474,6 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.xs,
     borderRadius: RADIUS.sm,
     gap: 4,
-  },
-  actionIcon: {
-    fontSize: FONTS.bodySize,
-    fontWeight: FONTS.black,
   },
   actionCount: {
     fontSize: FONTS.captionSize,

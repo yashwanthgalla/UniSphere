@@ -6,34 +6,47 @@ import {
   FlatList,
   StatusBar,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { FONTS, SPACING, RADIUS } from '../theme';
 import { useFocusEffect } from '@react-navigation/native';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
+import { notificationService } from '../services/firestore';
 import { formatTimestamp } from '../utils/helpers';
 
 const ICON_MAP = {
-  like: '▲',
-  comment: '💬',
-  reply: '↩',
+  like: 'arrow-up-circle',
+  upvote: 'arrow-up-circle',
+  comment: 'chatbubble',
+  reply: 'return-down-forward',
+  follow: 'person-add',
+  mention: 'at',
+  community: 'people',
 };
 
 const COLOR_MAP = {
   like: '#FF4500',
+  upvote: '#FF4500',
   comment: '#1A1AFF',
   reply: '#00E676',
+  follow: '#FFD600',
+  mention: '#7C4DFF',
+  community: '#FF6B9D',
 };
 
-const NotificationItem = ({ item, colors }) => (
-  <View
+const NotificationItem = ({ item, colors, onPress }) => (
+  <TouchableOpacity
+    activeOpacity={0.85}
+    onPress={() => onPress?.(item)}
     style={[
       styles.notifCard,
       {
         backgroundColor: item.read ? colors.card : colors.inputBg,
-        borderColor: colors.border,
+        borderColor: item.read ? colors.border : colors.accent,
       },
     ]}
   >
@@ -42,13 +55,21 @@ const NotificationItem = ({ item, colors }) => (
         styles.notifIcon,
         {
           backgroundColor: COLOR_MAP[item.type] || colors.accent,
-          borderColor: colors.border,
         },
       ]}
     >
-      <Text style={styles.notifIconText}>{ICON_MAP[item.type] || '●'}</Text>
+      <Ionicons
+        name={ICON_MAP[item.type] || 'notifications'}
+        size={18}
+        color="#FFF"
+      />
     </View>
     <View style={styles.notifContent}>
+      {item.fromUsername && (
+        <Text style={[styles.notifFrom, { color: colors.accent }]}>
+          {item.fromUsername}
+        </Text>
+      )}
       <Text style={[styles.notifText, { color: colors.text }]}>
         {item.text}
       </Text>
@@ -59,20 +80,40 @@ const NotificationItem = ({ item, colors }) => (
     {!item.read && (
       <View style={[styles.unreadDot, { backgroundColor: colors.accent }]} />
     )}
-  </View>
+  </TouchableOpacity>
 );
 
-const NotificationsScreen = () => {
+const NotificationsScreen = ({ navigation }) => {
   const { colors, isDark } = useTheme();
   const [notifications, setNotifications] = useState([]);
   const { user } = useAuth();
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  const handleNotifPress = async (item) => {
+    // Mark as read
+    if (!item.read) {
+      try { await notificationService.markRead(item.id); } catch (e) {}
+    }
+    if (item.type === 'follow' && item.fromUserId) {
+      navigation.navigate('UserProfile', { userId: item.fromUserId });
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (unreadCount === 0) return;
+    try {
+      await notificationService.markAllRead(user?.uid);
+    } catch (e) {
+      Alert.alert('Error', 'Could not mark all as read.');
+    }
+  };
+
   const renderItem = useCallback(
-    ({ item }) => <NotificationItem item={item} colors={colors} />,
+    ({ item }) => <NotificationItem item={item} colors={colors} onPress={handleNotifPress} />,
     [colors]
   );
+
   // Listen to Firestore notifications for this user
   useFocusEffect(
     React.useCallback(() => {
@@ -108,19 +149,30 @@ const NotificationsScreen = () => {
             <Text style={{ color: colors.accent }}>FICATIONS</Text>
           </Text>
         </View>
-        {unreadCount > 0 && (
-          <View
-            style={[
-              styles.badge,
-              {
-                backgroundColor: colors.accent,
-                borderColor: colors.border,
-              },
-            ]}
-          >
-            <Text style={styles.badgeText}>{unreadCount}</Text>
-          </View>
-        )}
+        <View style={styles.headerRight}>
+          {unreadCount > 0 && (
+            <TouchableOpacity
+              onPress={handleMarkAllRead}
+              style={[styles.markAllBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+            >
+              <Ionicons name="checkmark-done" size={16} color={colors.accent} />
+              <Text style={[styles.markAllText, { color: colors.accent }]}>ALL READ</Text>
+            </TouchableOpacity>
+          )}
+          {unreadCount > 0 && (
+            <View
+              style={[
+                styles.badge,
+                {
+                  backgroundColor: colors.accent,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Text style={styles.badgeText}>{unreadCount}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* List */}
@@ -132,6 +184,7 @@ const NotificationsScreen = () => {
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.empty}>
+            <Ionicons name="notifications-off-outline" size={56} color={colors.textMuted} style={{ opacity: 0.3, marginBottom: SPACING.md }} />
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
               ALL CLEAR
             </Text>
@@ -169,6 +222,25 @@ const styles = StyleSheet.create({
     fontWeight: FONTS.black,
     letterSpacing: -1.5,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  markAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  markAllText: {
+    fontSize: FONTS.tinySize,
+    fontWeight: FONTS.black,
+    letterSpacing: 0.5,
+  },
   badge: {
     borderWidth: 2.5,
     borderRadius: RADIUS.sm,
@@ -193,21 +265,22 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   notifIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: RADIUS.sm,
-    borderWidth: 2,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  notifIconText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '900',
   },
   notifContent: {
     flex: 1,
     marginLeft: SPACING.sm,
+  },
+  notifFrom: {
+    fontSize: FONTS.tinySize,
+    fontWeight: FONTS.black,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 1,
   },
   notifText: {
     fontSize: FONTS.captionSize,

@@ -22,10 +22,19 @@ export const ThemeProvider = ({ children }) => {
       accentAlt: COLORS.accentAlt,
       accentYellow: COLORS.accentYellow,
       accentGreen: COLORS.accentGreen,
+      accentPink: COLORS.accentPink,
+      accentPurple: COLORS.accentPurple,
       danger: COLORS.danger,
+      upvote: COLORS.upvote,
+      downvote: COLORS.downvote,
       inputBg: isDark ? COLORS.gray900 : COLORS.gray100,
       tabBar: isDark ? COLORS.darkCard : COLORS.white,
       skeleton: isDark ? COLORS.gray800 : COLORS.gray200,
+      // Post type
+      postText: COLORS.postText,
+      postImage: COLORS.postImage,
+      postPoll: COLORS.postPoll,
+      postConfession: COLORS.postConfession,
     }),
     [isDark]
   );

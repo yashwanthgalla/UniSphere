@@ -13,6 +13,14 @@ export const COLORS = {
   accentAlt: '#1A1AFF',    // Electric blue
   accentYellow: '#FFD600', // Punch yellow
   accentGreen: '#00E676',  // Neon green
+  accentPink: '#FF6B9D',   // Vibrant pink
+  accentPurple: '#7C4DFF', // Deep purple
+
+  // Post type colors
+  postText: '#FF4500',
+  postImage: '#1A1AFF',
+  postPoll: '#7C4DFF',
+  postConfession: '#FF6B9D',
 
   // Grays
   gray100: '#F2F2F2',
@@ -30,6 +38,10 @@ export const COLORS = {
   success: '#00E676',
   warning: '#FFD600',
   info: '#1A1AFF',
+
+  // Vote colors
+  upvote: '#FF4500',
+  downvote: '#7C4DFF',
 
   // Dark mode
   darkBg: '#0A0A0A',
@@ -125,4 +137,20 @@ export const BRUTAL = {
     shadowRadius: 0,
     elevation: 6,
   },
+};
+
+// Post type configurations
+export const POST_TYPES = {
+  text: { label: 'TEXT', icon: 'create-outline', color: COLORS.postText },
+  image: { label: 'IMAGE', icon: 'image-outline', color: COLORS.postImage },
+  poll: { label: 'POLL', icon: 'bar-chart-outline', color: COLORS.postPoll },
+  confession: { label: 'CONFESS', icon: 'eye-off-outline', color: COLORS.postConfession },
+};
+
+// Animation timings
+export const ANIMATION = {
+  fast: 150,
+  normal: 300,
+  slow: 500,
+  spring: { tension: 50, friction: 7 },
 };

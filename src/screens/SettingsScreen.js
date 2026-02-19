@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { FONTS, SPACING, RADIUS } from '../theme';
@@ -34,17 +35,21 @@ const SettingsScreen = ({ navigation }) => {
     ]);
   };
 
-  const SettingRow = ({ label, value, onPress }) => (
+  const SettingRow = ({ label, value, onPress, icon }) => (
     <TouchableOpacity
       onPress={onPress}
       disabled={!onPress}
       style={[styles.row, { borderBottomColor: colors.border }]}
     >
-      <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
+      <View style={styles.rowLeft}>
+        {icon && <Ionicons name={icon} size={18} color={colors.textMuted} style={{ marginRight: SPACING.sm }} />}
+        <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
+      </View>
       {value && (
-        <Text style={[styles.rowValue, { color: colors.textMuted }]}>
-          {value}
-        </Text>
+        <View style={styles.rowRight}>
+          <Text style={[styles.rowValue, { color: colors.textMuted }]}>{value}</Text>
+          {onPress && <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
+        </View>
       )}
     </TouchableOpacity>
   );
@@ -59,11 +64,12 @@ const SettingsScreen = ({ navigation }) => {
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={[styles.backBtn, { color: colors.text }]}>← BACK</Text>
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text }]}>
           SET<Text style={{ color: colors.accent }}>TINGS</Text>
         </Text>
+        <View style={{ width: 24 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -78,9 +84,16 @@ const SettingsScreen = ({ navigation }) => {
             { backgroundColor: colors.inputBg, borderColor: colors.border },
           ]}
         >
-          <Text style={[styles.themeLabel, { color: colors.text }]}>
-            {isDark ? '◐ DARK MODE' : '◑ LIGHT MODE'}
-          </Text>
+          <View style={styles.themeLeft}>
+            <Ionicons
+              name={isDark ? 'moon' : 'sunny'}
+              size={20}
+              color={isDark ? colors.accentYellow : colors.accent}
+            />
+            <Text style={[styles.themeLabel, { color: colors.text }]}>
+              {isDark ? 'DARK MODE' : 'LIGHT MODE'}
+            </Text>
+          </View>
           <Text style={[styles.themeHint, { color: colors.textMuted }]}>
             tap to switch
           </Text>
@@ -90,16 +103,16 @@ const SettingsScreen = ({ navigation }) => {
         <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
           ABOUT
         </Text>
-        <SettingRow label="VERSION" value="1.0.0 — MVP" />
-        <SettingRow label="BUILD" value="2026.02.19" />
-        <SettingRow label="PLATFORM" value="Expo / React Native" />
+        <SettingRow label="VERSION" value="1.0.0 — MVP" icon="information-circle-outline" />
+        <SettingRow label="BUILD" value="2026.02.19" icon="code-slash-outline" />
+        <SettingRow label="PLATFORM" value="Expo / React Native" icon="phone-portrait-outline" />
 
         {/* Privacy */}
         <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
           PRIVACY
         </Text>
-        <SettingRow label="DATA POLICY" value="→" onPress={() => {}} />
-        <SettingRow label="TERMS OF SERVICE" value="→" onPress={() => {}} />
+        <SettingRow label="DATA POLICY" onPress={() => {}} icon="shield-outline" />
+        <SettingRow label="TERMS OF SERVICE" onPress={() => {}} icon="document-text-outline" />
 
         {/* Info Box */}
         <View
@@ -139,19 +152,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: SPACING.md,
     paddingTop: 56,
     paddingBottom: SPACING.md,
     borderBottomWidth: 2.5,
   },
-  backBtn: {
-    fontSize: FONTS.captionSize,
-    fontWeight: FONTS.black,
-    letterSpacing: 1,
-    marginBottom: SPACING.sm,
-  },
   headerTitle: {
-    fontSize: FONTS.titleSize,
+    fontSize: FONTS.headingSize,
     fontWeight: FONTS.black,
     letterSpacing: -1,
   },
@@ -174,6 +184,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  themeLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
   themeLabel: {
     fontSize: FONTS.bodySize,
     fontWeight: FONTS.black,
@@ -191,6 +206,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: SPACING.md,
     borderBottomWidth: 1,
+  },
+  rowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   rowLabel: {
     fontSize: FONTS.captionSize,
